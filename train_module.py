@@ -16,7 +16,6 @@ Definitions of training functions called in main.py
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import os, sys, csv
 import numpy as np
 import pickle
@@ -39,7 +38,7 @@ def call_cnn_model():
     """
 
     # Model configuration
-    l_in = Input(shape = (61,61))
+    l_in = Input(shape = (61,61,1))
     l_model = Conv2D(4, 3, padding='valid', kernel_initializer = 'glorot_uniform', activation = 'relu')(l_in)
     l_model = BatchNormalization()(l_model)
     l_model = Conv2D(4, 3, padding='valid', kernel_initializer = 'glorot_uniform', activation = 'relu')(l_model)
@@ -122,7 +121,7 @@ def train_cnn(dataset, dirname):
         os.makedirs(dirname)
     
     # Load data splits
-    data = load_object('./data/{}_data_folds.pkl'.format(dataset))
+    data = create_data(dataset)
 
     # This matrix keeps the precisions for baselines and  CNN
     precs      = np.zeros((num_folds, num_runs, 4))
@@ -176,7 +175,7 @@ def train_cnn(dataset, dirname):
 
             # Callbacks
             early_stop = EarlyStopping(monitor='val_loss', min_delta=0, patience=5, verbose=1, mode='auto')
-            model_name  = '{}/best_model_config_no_{:d}_fold_{:d}_run_{:d}.h5'.format(dirname, model_no, i, run)
+            model_name  = '{}/best_model_fold_{:d}_run_{:d}.h5'.format(dirname, i, run)
             check_it_out = ModelCheckpoint(model_name, save_best_only=True)
 
             # TRAIN
@@ -254,10 +253,10 @@ def train_nn(dataset, dirname, datafile=None, lighter_nn=False):
 
     # Create folder
     if not os.path.exists(dirname):
-    os.makedirs(dirname)
+        os.makedirs(dirname)
 
     # Load data splits
-    data = load_object('./data/{}_data_folds.pkl'.format(dataset))
+    data = create_data(dataset)
 
     # This matrix keeps the precisions for baselines and  CNN
     precs     = np.zeros((num_folds, num_runs, 4))

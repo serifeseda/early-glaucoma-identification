@@ -21,6 +21,8 @@ import sys
 from ast import literal_eval
 import pickle
 import numpy as np
+import pandas as pd
+import csv
 from scipy.misc import imresize
 from keras.callbacks import EarlyStopping, Callback, LearningRateScheduler, ModelCheckpoint
 from keras.models import Sequential, Model
@@ -36,7 +38,28 @@ from sklearn.preprocessing import scale, StandardScaler
 from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support, f1_score, roc_curve, roc_auc_score
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
-
+class Data_Fold:
+    """
+    Data class with attributes below. 
+    This puts in a structured way the raw data and images for one fold.
+    """
+    tr_input_imgs   = []
+    val_input_imgs  = []
+    test_input_imgs = []
+    tr_input_vf     = []
+    val_input_vf    = []
+    test_input_vf   = []
+    test_md  = []
+    test_slv = []
+    tr_output   = []
+    val_output  = []
+    test_output = []
+    train_pat_idents = []
+    val_pat_idents   = []
+    test_pat_idents  = []
+    train_idx        = []
+    val_idx          = []
+    test_idx         = []
 def save_object(obj, filename):
     """
     Saves an object ot a file
@@ -60,6 +83,115 @@ def load_object(filename):
         obj = pickle.load(input)
 
     return obj
+
+def create_data(dataset):
+    """
+    Creates a data object including all data folds used in training, validation 
+    and test.
+    Inputs:
+        dataset: Dataset name. 'BD' for Budapest dataset, 'RT' for Rotterdam dataset
+    Outputs:
+        data_folds: Data fold object (see Data_Fold class)
+    """
+
+    if dataset == 'BD':
+        num_locs = 38
+    elif dataset == 'RT':
+        num_locs == 54
+    else:
+        print('No dataset is available with that name!')
+    
+    df = pd.read_csv('./S1_data/{}_dataset.csv'.format(dataset))
+    patient_id = np.asarray(df['PATIENT ID'])
+    eye_id     = np.asarray(df['EYE ID'])[:,np.newaxis]
+    md         = np.asarray(df['MD'])[:,np.newaxis]
+    slv        = np.asarray(df['sLV'])[:,np.newaxis]
+    labels     = np.asarray(df['GLAUCOMATOUS'])[:,np.newaxis]
+    vf_data = np.zeros((len(labels), num_locs))
+    x = np.zeros((len(labels), num_locs))
+    y = np.zeros((len(labels), num_locs))
+    for k in range(num_locs):
+        vf_data[:, k] = np.asarray(df['VF_{:d}'.format(k+1)])
+        x[:,k] = np.asarray(df['X_{:d}'.format(k+1)])
+        y[:,k] = np.asarray(df['Y_{:d}'.format(k+1)])
+
+    # Append global indices to VF data matrix
+    vf_data = np.concatenate([vf_data, md, slv], axis=1)
+
+    # Map all coordinates to right eye format
+    x[eye_id[:,0]==1, :] = -1 * x[eye_id[:,0]==1, :]
+
+    # Create voronoi images
+    xy = np.concatenate([x[0, np.newaxis].T, y[0, np.newaxis].T], axis=1)
+    vor_images = generate_voronoi_images_given_image_size(vf_data, xy)
+
+    # Read training, validation and test splits
+    tr_pat_ids = []
+    val_pat_ids = []
+    test_pat_ids = []
+    with open('./S1_data/{}_training_patient_ids.csv'.format(dataset), 'r') as csvfile:
+        reader = csv.reader(csvfile, delimiter=',')
+        for row in reader:
+            tr_pat_ids.append(np.asarray(row).astype('int'))
+
+    with open('./S1_data/{}_validation_patient_ids.csv'.format(dataset), 'r') as csvfile:
+        reader = csv.reader(csvfile, delimiter=',')
+        for row in reader:
+            val_pat_ids.append(np.asarray(row).astype('int'))
+
+    with open('./S1_data/{}_test_patient_ids.csv'.format(dataset), 'r') as csvfile:
+        reader = csv.reader(csvfile, delimiter=',')
+        for row in reader:
+            test_pat_ids.append(np.asarray(row).astype('int'))
+
+    # Create data object with data splits
+    data_folds = []
+    num_folds = 10
+    for f in range(num_folds):
+
+        train_idx = np.isin(patient_id, tr_pat_ids[f])
+        val_idx = np.isin(patient_id, val_pat_ids[f])
+        test_idx = np.isin(patient_id, test_pat_ids[f])
+
+        data_fold = Data_Fold()
+
+        # Voronoi images
+        data_fold.tr_input_imgs   = vor_images[train_idx]
+        data_fold.val_input_imgs  = vor_images[val_idx]
+        data_fold.test_input_imgs = vor_images[test_idx]
+        
+        # Linear VF vectors (total deviation)
+        data_fold.tr_input_vf      = vf_data[train_idx]
+        data_fold.val_input_vf     = vf_data[val_idx]
+        data_fold.test_input_vf    = vf_data[test_idx]
+        
+        # MD, SLV
+        data_fold.train_md = md[train_idx]
+        data_fold.val_md   = md[val_idx]
+        data_fold.test_md  = md[test_idx]
+        data_fold.train_slv = slv[train_idx]
+        data_fold.val_slv   = slv[val_idx]
+        data_fold.test_slv  = slv[test_idx]
+
+        # Coordinates
+        data_fold.xy       = xy
+
+        # Labels
+        data_fold.tr_output   = labels[train_idx]
+        data_fold.val_output  = labels[val_idx]
+        data_fold.test_output = labels[test_idx]
+        
+        # Patient and samples indices
+        data_fold.train_pat_idents = patient_id[train_idx]
+        data_fold.val_pat_idents   = patient_id[val_idx]
+        data_fold.test_pat_idents  = patient_id[test_idx]
+        data_fold.train_idx        = train_idx.copy()
+        data_fold.val_idx          = val_idx.copy()
+        data_fold.test_idx         = test_idx.copy()
+        
+        data_folds.append(data_fold)
+
+    return data_folds
 def compute_metrics(labels, predictions, fnr_given=0.05):
     """ Finds area under roc curve, average prec.score and false positive rate
     at a given false negative rate (fnr_given).
@@ -189,6 +321,7 @@ def generate_voronoi_images_given_image_size(data, xy_coordinates, image_size=(6
     img = np.zeros((img_row_size, img_col_size))
 
     # Fill in image
+    n_channels = 1
     vor_images = np.zeros((num_obs, 1, img_row_size, img_col_size))
     for k in range(num_obs):
         value_vector = data[k,:]
@@ -201,6 +334,9 @@ def generate_voronoi_images_given_image_size(data, xy_coordinates, image_size=(6
         # from down to up but a matrix row indices increase from up to down)
         img = np.flipud(img)
         vor_images[k, 0, : , :] = img
+
+    # Move axis for keras models
+    vor_images = np.moveaxis(vor_images, 1, -1)
 
     return vor_images
 

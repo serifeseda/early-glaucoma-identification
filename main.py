@@ -25,7 +25,7 @@ dirname  = 'results/CNN/{}'.format(dataset) # this can be changed as you wish
 train_cnn(dataset, dirname)
 
 # Train and evaluate the CNN model on RT data set
-dataset  = 'RD'
+dataset  = 'RT'
 dirname  = 'results/CNN/{}'.format(dataset) # This can be changed as you wish
 train_cnn(dataset, dirname)
 
@@ -35,7 +35,7 @@ dirname  = 'results/NN/{}'.format(dataset) # this can be changed as you wish
 train_nn(dataset, dirname)
 
 # Train and evaluate the NN model on RT data set
-dataset  = 'RD'
+dataset  = 'RT'
 dirname  = 'results/NN/{}'.format(dataset) # This can be changed as you wish
 train_nn(dataset, dirname)
 
